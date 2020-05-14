@@ -1,0 +1,10 @@
+### input + box size (Mpc/h)
+C250.h5 250
+### halo property (We read the col information use hf.keys())
+Vpeak
+### output: col n number
+upid Vpeak V_max M_vir
+### SMF:
+SMF.txt
+### scatter[Ms|halo_property]:
+scatter.txt
