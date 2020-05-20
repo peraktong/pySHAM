@@ -1,3 +1,9 @@
+# use hdf5 rather than .txt
+# only for multi-threaded optimized
+# output is also hdf5
+# easy to use
+# include diagnostic plot a. scatter pattern vs input scatter b SMF c. SHMR
+import matplotlib
 import numpy as np
 import gzip
 import sys
@@ -6,6 +12,8 @@ import time
 import matplotlib.pyplot as plt
 from multiprocessing import Process
 import multiprocessing
+import h5py
+
 
 #% matplotlib inline
 
@@ -58,27 +66,28 @@ for line in parameters:
         box_size = float(line.replace("\n", "").split(" ")[1])
     if count == 3:
         halo_property = line.replace("\n", "").split(" ")[0]
-        halo_col = int(line.replace("\n", "").split(" ")[1])
     if count == 5:
         output_col = line.replace("\n", "").split(" ")
     if count == 7:
         SMF_fusion = np.genfromtxt(line.replace("\n", ""))
     if count == 9:
         scatter_fusion = np.genfromtxt(line.replace("\n", ""))
+    if count==11:
+        n_thread_max = int(line.replace("\n", "").split(" ")[0])
     count += 1
 
 # read data
 
-print("Reading data, may take a while")
+print("Reading data")
 start_time = time.time()
-hlist_data = np.genfromtxt(file_name)
+hf = h5py.File(file_name,"r")
 
-print("Finish reading hlist data. Time we use %.2f seconds"%(time.time()-start_time))
+print("Keys in the input catalog")
+hf.keys()
 
 
 
-
-x = np.log10(hlist_data[:,halo_col])
+x = np.log10(np.array(hf[halo_property]))
 # calculate SMF_cumu:
 # remember the returned SMF_cumu is not in log space:
 #smf_combine = np.poly1d(np.polyfit(SMF_fusion[:,0], SMF_fusion[:,1], 10))
@@ -130,9 +139,10 @@ y[mask] = np.nan
 # we tabulate scatter from 0 to 1 with 0.01 bin size:
 
 if np.nanmedian(x_target)<5:
-    upper_s = 0.35
+    upper_s = 0.4
 else:
     upper_s = 1
+
 
 ## remember this sorted index_x since we also need to recover the hlist later
 index_x = np.argsort(x)
@@ -146,14 +156,16 @@ import mkl
 import warnings
 mkl.set_num_threads(1)
 
-# warning
+# warning 
 warnings.filterwarnings('ignore')
 ### Do some debugging
 # scatter array target:
-scatter_array_target = np.linspace(0, upper_s, 80)
+# Here we use 500 bins and use batch to do multi-threading
+n_bins = 500
+scatter_array_target = np.linspace(0, upper_s, n_bins)
 
 # debugging:
-# scatter_array_target=[0]
+#scatter_array_target=[0]
 
 Vpeak_log = x
 Vpeak_log_target = x_target
@@ -167,8 +179,7 @@ mask_finite = np.isfinite(x + y)
 poly_Ms_from_halo = np.poly1d(np.polyfit(x[mask_finite], y[mask_finite], 10))
 
 ### use multithreading in tabulating the scatter:
-thread_to_use = 48
-# bin_size = len(scatter_array_target) // thread_to_use
+#bin_size = len(scatter_array_target) // thread_to_use
 
 my_pool = []
 
@@ -176,9 +187,11 @@ manager = multiprocessing.Manager()
 final_results = manager.dict()
 
 
+
 def helper(s):
+ 
     scatter = scatter_array_target[s]
-    print("start thread %d" % s)
+    # print("start thread %d"%s)
 
     scatter_array_all = []
 
@@ -191,45 +204,79 @@ def helper(s):
     Ms_all_log_s = Ms_all_log[index]
 
     y_Ms_at_Vpeak = []
+    
 
     for m in range(0, len(Vpeak_log_target)):
 
         mask_V = (Vpeak_log > Vpeak_log_target[m] - 0.1 * upper_s) & (Vpeak_log < Vpeak_log_target[m] + 0.1 * upper_s)
-        # select_sample = Ms_all_log_s[mask_V] - poly_Ms_from_halo(Vpeak_log[mask_V])
-        select_sample = Ms_all_log_s[mask_V]
+        select_sample = Ms_all_log_s[mask_V] - poly_Ms_from_halo(Vpeak_log[mask_V])
+        #select_sample = Ms_all_log_s[mask_V]
         # print(np.nanstd(select_sample))
 
-        if len(select_sample) > 20:
-            y_Ms_at_Vpeak.append((np.nanpercentile(select_sample, 84) - np.nanpercentile(select_sample, 16)) / 2)
+        if len(select_sample)>20:
+            y_Ms_at_Vpeak.append((np.nanpercentile(select_sample,84)-np.nanpercentile(select_sample,16))/2)
+            # y_Ms_at_Vpeak.append(np.nanstd(select_sample))
 
         else:
             y_Ms_at_Vpeak.append(np.nan)
 
     # y_Ms_V_all.append(box_smooth(y_Ms_at_Vpeak))
     final_results[str(s)] = np.array(box_smooth(y_Ms_at_Vpeak))
-
-
+    
 # start threads:
+# can split into several smaller batch
+# n_thread_max= 24
+n_batch = 1+n_bins//n_thread_max
+
+"""
 for ni in range(0, len(scatter_array_target)):
     pi = Process(target=helper, args=(ni,))
     my_pool.append(pi)
     pi.start()
-
+    
 for ni in range(0, len(scatter_array_target)):
     my_pool[ni].join()
 
+"""
+    
+for bi in range(n_batch):
+    print("Doing batch %d of %d"%(bi,n_batch))
+    if bi<n_batch-1:
+        for ni in range(n_thread_max*bi, n_thread_max*bi+n_thread_max):
+            pi = Process(target=helper, args=(ni,))
+            my_pool.append(pi)
+            pi.start()
+
+        for ni in range(n_thread_max*bi, n_thread_max*bi+n_thread_max):
+            my_pool[ni].join()
+    else:
+        for ni in range(n_thread_max*bi, len(scatter_array_target)):
+            pi = Process(target=helper, args=(ni,))
+            my_pool.append(pi)
+            pi.start()
+
+        for ni in range(n_thread_max*bi, len(scatter_array_target)):
+            my_pool[ni].join()
+        
+        
+
+    
+    
 ##Done
 print("All threads done")
+
 
 y_Ms_V_all = []
 for i in range(0, len(scatter_array_target)):
     y_Ms_V_all.append(final_results[str(i)])
 
 y_Ms_V_all = np.array(y_Ms_V_all)
-print("Time we use for tabulating scatter %.2f seconds" % (time.time() - time_start))
+print("Time we use for tabulating scatter %.2f seconds"%(time.time()-time_start))
 
 # maybe we can save it :
-#np.savetxt("y_Ms_V_all.txt", y_Ms_V_all)
+np.savetxt("y_Ms_V_all.txt",y_Ms_V_all)
+
+
 
 
 
@@ -243,7 +290,6 @@ for i in range(len(Vpeak_log_target)):
 V_scatter = np.array(V_scatter)
 
 print("Done")
-
 
 print("Adding scatter and saving files")
 
@@ -266,10 +312,181 @@ Ms_all_log_scatter = Ms_all_log_sort_i[index_recovery]
 ## remember only output Ms>lower limit of SMF_fusion
 mask_effective = Ms_all_log_scatter<np.nanmin(SMF_fusion[:,0])
 Ms_all_log_scatter[mask_effective]=None
-fusion_output = np.c_[Vpeak_log,Ms_all_log_scatter]
+"""
 
-# save or not
-#np.savetxt("output.txt",fusion_output)
+
+for o in range(len(output_col)):
+    if o==0:
+        fusion_output = np.array(hf[output_col[o]])
+    else:
+        fusion_output = np.c_[fusion_output,np.array(hf[output_col[o]])]
+fusion_output = np.c_[fusion_output,Ms_all_log_scatter]     
+
+# save it
+np.savetxt("output.txt",fusion_output)
+
+
+
+"""
+
+# can also output hdf5
+
+save = h5py.File("output.hdf5","w+")
+for o in range(len(output_col)):
+    save.create_dataset(output_col[o], data=np.array(hf[output_col[o]]), dtype="f")
+save.create_dataset("Ms", data=Ms_all_log_scatter, dtype="f")
+save.close()
+
+
+
+## Make diagnostic plots:
+print("Making diagnostic plots")
+# scatter patter:
+
+font = {'family': 'normal','weight': 'bold',
+        'size': 15}
+
+matplotlib.rc('font', **font)
+matplotlib.rc('axes', linewidth=3)
+
+
+plt.plot(scatter_fusion[:,0],scatter_fusion[:,1],"ko",label="Original")
+# calculate scatter for Ms at fixed halo property:
+x_target = scatter_fusion[:,0]
+bin_size= abs(np.nanmean(np.diff(x_target)))
+y_scatter = []
+x = np.log10(np.array(hf[halo_property]))
+y_mean = []
+
+for i in range(len(x_target)):
+    mask_i = abs(x-x_target[i])<bin_size/2
+    y_mean.append(np.nanmean(Ms_all_log_scatter[mask_i]))
+y_mean = np.array(y_mean)
+
+# fit poly
+mask_finite = np.isfinite(x_target+y_mean)
+#poly = np.poly1d(np.polyfit(x_target[mask_finite], y_mean[mask_finite], 5))
+
+# calculate scatter:
+
+
+def bootstrap_scatter_err(samples):
+    mask_finite = np.isfinite(samples)
+    samples = samples[mask_finite]
+    index_all = range(len(samples))
+    err_all = []
+    N=100
+    for i in range(0,N):
+        index_choose = np.random.randint(0,len(samples)-1,len(samples))
+        k_i = np.nanmedian(samples[index_choose])
+        err_all.append(k_i)
+    err_all = np.array(err_all)
+    return err_all
+
+y_scatter = []
+y_scatter_err = []
+
+for i in range(len(x_target)):
+    mask_i = abs(x-x_target[i])<0.1 * upper_s
+    #sample_select = Ms_all_log_scatter[mask_i]-poly(x[mask_i])
+    sample_select = Ms_all_log_scatter[mask_i]-poly_Ms_from_halo(x[mask_i])
+    mask_finite_i = np.isfinite(sample_select)
+    sample_select = sample_select[mask_finite_i]
+    if len(sample_select)>10:
+        s_bigger = (np.percentile(sample_select, 84) - np.percentile(sample_select, 16)) / 2
+        # s_bigger = np.nanstd(sample_select)
+        y_scatter.append(s_bigger)
+        y_scatter_err.append(np.nanstd(bootstrap_scatter_err(samples=sample_select)))
+    else:
+        y_scatter.append(np.nan)
+        y_scatter_err.append(np.nan)
+        
+    
+
+
+plt.errorbar(x=scatter_fusion[:,0],y=y_scatter,yerr=y_scatter_err,label="Calculated")
+axes = plt.gca()
+axes.set_ylim([0,upper_s])
+plt.legend()
+fig = matplotlib.pyplot.gcf()
+
+fig.set_size_inches(9,9)
+save_path = "scatter.pdf"
+
+fig.savefig(save_path, dpi=150)
+
+plt.close()
+
+# SHMR:
+
+
+font = {'family': 'normal','weight': 'bold',
+        'size': 15}
+
+matplotlib.rc('font', **font)
+matplotlib.rc('axes', linewidth=3)
+
+
+
+plt.plot(x_target,y_mean,"ko")
+plt.xlabel("%s"%halo_property)
+plt.ylabel("logMs")
+plt.legend()
+fig = matplotlib.pyplot.gcf()
+
+fig.set_size_inches(9,9)
+save_path = "SHMR.pdf"
+
+fig.savefig(save_path, dpi=150)
+
+plt.close()
+
+
+# SMF:
+
+
+font = {'family': 'normal','weight': 'bold',
+        'size': 15}
+
+matplotlib.rc('font', **font)
+matplotlib.rc('axes', linewidth=3)
+
+
+
+plt.plot(SMF_fusion[:,0],np.log10(SMF_fusion[:,1]),"ko",label="Original")
+
+# 
+Ms_log_target = SMF_fusion[:,0]
+y_smf = []
+for mi in range(len(Ms_log_target)):
+    mask_mi = abs(Ms_all_log_scatter-Ms_log_target[mi])<0.05
+    y_smf.append(len(Ms_all_log_scatter[mask_mi]))
+y_smf = np.array(y_smf)
+y_smf_log = np.log10(y_smf)
+
+mask_offset = (Ms_log_target>9.7)&(Ms_log_target<11.5)
+offset = np.nanmean(np.log10(SMF_fusion[mask_offset,1]))-np.nanmean(y_smf_log[mask_offset])
+
+plt.plot(SMF_fusion[:,0],y_smf_log+offset,"r",label="Calculated")
+
+
+plt.xlabel("%s"%halo_property)
+plt.ylabel(r"$\log \phi$")
+plt.legend()
+
+fig = matplotlib.pyplot.gcf()
+
+fig.set_size_inches(9,9)
+save_path = "SMF.pdf"
+
+fig.savefig(save_path, dpi=150)
+
+plt.close()
+
+
 print("All set!")
+
+
+
 
 

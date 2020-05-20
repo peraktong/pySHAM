@@ -1,10 +1,12 @@
 ### input + box size (Mpc/h)
-hlist.txt 250
-### halo property + index of the column
-Vpeak 2 0.3 Mpeak 3 0.7
-### output: col n number
-Mvir Vpeak Vmax
-### SMF:
+C250.h5 250
+### halo property (We read the col information use hf.keys())
+Vpeak
+### output: col n number (required)
+upid Vpeak V_max M_vir
+### SMF: (required)
 SMF.txt
-### scatter[Ms|halo_property]:
+### scatter[log Ms|halo_property]: (required)
 scatter.txt
+### Thread to use (default is 24)
+24
