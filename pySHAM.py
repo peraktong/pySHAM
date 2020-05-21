@@ -83,7 +83,7 @@ start_time = time.time()
 hf = h5py.File(file_name,"r")
 
 print("Keys in the input catalog")
-hf.keys()
+print(hf.keys())
 
 
 
