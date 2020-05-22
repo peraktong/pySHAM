@@ -53,11 +53,12 @@ def box_smooth(data_array):
     data_smooth[0] = np.nanmedian(data_array[:1])
     return data_smooth
 
-
+inputs = sys.argv
 try:
     parameters = open("sys.argv[1]", "r")
 except:
     parameters = open("parameters.txt", "r")
+
 
 count = 0
 for line in parameters:
@@ -83,7 +84,7 @@ start_time = time.time()
 hf = h5py.File(file_name,"r")
 
 print("Keys in the input catalog")
-print(hf.keys())
+print(list(hf.keys()))
 
 
 
