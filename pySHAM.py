@@ -83,7 +83,7 @@ start_time = time.time()
 hf = h5py.File(file_name,"r")
 
 print("Keys in the input catalog")
-hf.keys()
+print(hf.keys())
 
 
 
@@ -331,7 +331,7 @@ np.savetxt("output.txt",fusion_output)
 
 # can also output hdf5
 
-save = h5py.File("output.hdf5","w+")
+save = h5py.File("output.hdf5","w")
 for o in range(len(output_col)):
     save.create_dataset(output_col[o], data=np.array(hf[output_col[o]]), dtype="f")
 save.create_dataset("Ms", data=Ms_all_log_scatter, dtype="f")
