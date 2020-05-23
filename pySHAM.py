@@ -54,8 +54,10 @@ def box_smooth(data_array):
     return data_smooth
 
 inputs = sys.argv
+
 try:
-    parameters = open("sys.argv[1]", "r")
+    parameters = open(str(inputs[1]), "r")
+    print("We are using %s as parameter file"%inputs[1])
 except:
     parameters = open("parameters.txt", "r")
 
