@@ -1,6 +1,7 @@
 # pySHAM
 Link for the large input data file, please download it first. <br>
 https://drive.google.com/file/d/1OCVGEZI0TOSFB6oIMMbaNb9gw0dZ5zou/view?usp=sharing <br>
+On Zenodo: Junzhi. (2021, April 22). pySHAM. Zenodo. http://doi.org/10.5281/zenodo.4711237 <br>
 log stands for log10 <br>
 how to run: <br>
 python pySHAM.py <br>
